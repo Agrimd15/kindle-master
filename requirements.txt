@@ -1,0 +1,8 @@
+requests
+beautifulsoup4
+click
+python-dotenv
+pytesseract
+Pillow
+cloudscraper
+lxml
