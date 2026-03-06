@@ -1,6 +1,9 @@
 # Environment
 .env
 
+# User database (contains Kindle emails — never commit)
+kindle_users.db
+
 # Python
 __pycache__/
 *.py[cod]

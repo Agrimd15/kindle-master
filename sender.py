@@ -7,13 +7,21 @@ from email import encoders
 import config
 
 
-def send_to_kindle(epub_path: str, book_title: str = "Book") -> None:
-    """Email the epub file to the configured Kindle address."""
-    config.validate()
+def send_to_kindle(epub_path: str, book_title: str = "Book", kindle_email: str | None = None) -> None:
+    """Email the epub file to a Kindle address.
+
+    kindle_email overrides the KINDLE_EMAIL env var — used by the bot
+    so each user can have their own Kindle address.
+    """
+    config.validate_smtp()
+
+    to = kindle_email or config.KINDLE_EMAIL
+    if not to:
+        raise ValueError("No Kindle email address provided.")
 
     msg = MIMEMultipart()
     msg["From"] = config.SENDER_EMAIL
-    msg["To"] = config.KINDLE_EMAIL
+    msg["To"] = to
     msg["Subject"] = "convert"  # Amazon converts epub → mobi when subject is "convert"
 
     msg.attach(MIMEText(f"Sending: {book_title}", "plain"))
@@ -30,4 +38,4 @@ def send_to_kindle(epub_path: str, book_title: str = "Book") -> None:
         server.ehlo()
         server.starttls()
         server.login(config.SENDER_EMAIL, config.SENDER_PASSWORD)
-        server.sendmail(config.SENDER_EMAIL, config.KINDLE_EMAIL, msg.as_string())
+        server.sendmail(config.SENDER_EMAIL, to, msg.as_string())
