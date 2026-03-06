@@ -1,148 +1,236 @@
 # kindle-master
 
-> Search a book → download the epub → it lands on your Kindle. One command or one Telegram message.
+> See a book. Want it on your Kindle. Done in 30 seconds.
 
-**Two ways to use it:**
+Send a book title — or a photo of the cover — to a Telegram bot. It finds the epub, downloads it, and delivers it to your Kindle automatically.
 
-| | Telegram Bot | CLI |
-|---|---|---|
-| Works on | Phone + desktop | Desktop only |
-| Setup | `/setup` in chat | Edit `.env` file |
-| Input | Type title, send a photo | Type title, pass image path |
-| Best for | Everyday use, on the go | Power users |
+```
+You: "Atomic Habits"
+Bot: [shows 5 results as buttons]
+You: [tap first result]
+Bot: "Atomic Habits is on its way to your Kindle."
+```
+
+Works on your phone. No terminal required.
 
 ---
 
 ## How it works
 
-1. You search by book title, author, or photo of a cover
-2. Picks from Anna's Archive (largest book index online)
-3. Downloads the epub from Libgen mirrors
-4. Emails it to your Kindle — Amazon delivers it in ~1 minute
+```
+Your message → Anna's Archive (search) → Libgen (download) → your Kindle email → Kindle
+```
 
-> Anna's Archive is the search engine. Libgen hosts the actual files. This tool wires them together.
+Anna's Archive is the largest book index online. Libgen hosts the actual files. This tool connects them and emails the result straight to your Kindle.
 
 ---
 
-## Telegram Bot — Setup (recommended)
+## Roles
 
-The bot is the easiest way to use this, especially from your phone. You host it once, and anyone can use it by messaging it on Telegram.
+There are two roles:
 
-### Step 1 — Create a Telegram bot
+- **Deployer** — the person who hosts the bot (you, if you're reading this). Done once.
+- **User** — anyone who messages the bot on Telegram, including yourself. Each user does a 2-minute setup the first time.
 
-1. Open Telegram and search for **@BotFather**
-2. Send `/newbot`
-3. Follow the prompts — give it a name and username
-4. BotFather gives you a token like `7123456789:AAF...` — copy it
+If you just want to use someone else's already-deployed bot, skip to [User setup](#user-setup).
 
-### Step 2 — Get your SMTP credentials
+---
 
-The bot sends emails from your Gmail account to deliver books to Kindle.
+## Deployer Setup
 
-**Gmail App Password** (required — regular passwords don't work):
-1. Go to [myaccount.google.com](https://myaccount.google.com)
-2. Click **Security** → enable **2-Step Verification** if not on
-3. Search **"App Passwords"** → click it → click **Create**
-4. Name it anything (e.g. `kindle-master`) → copy the 16-character password
+You're setting up the bot so you (and optionally others) can use it from Telegram. Do this once.
 
-### Step 3 — Deploy to Railway (free)
+### 1. Create a Telegram bot
 
-Railway runs the bot for free with no credit card required.
+1. Open Telegram on your phone or desktop
+2. Search for **@BotFather** (blue checkmark, official)
+3. Tap **Start** or send `/start`
+4. Send `/newbot`
+5. It asks for a **name** — this is the display name, e.g. `Kindle Master`
+6. It asks for a **username** — must end in `bot`, e.g. `kindlemaster_bot`
+7. BotFather replies with your token:
+   ```
+   Use this token to access the HTTP API:
+   7123456789:AAFxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+   ```
+   Copy and save this token — you'll need it in Step 4.
 
-1. Fork this repo on GitHub
-2. Go to [railway.app](https://railway.app) and sign in with GitHub
-3. Click **New Project** → **Deploy from GitHub repo** → select your fork
-4. Once deployed, go to your service → **Variables** tab → add these:
+---
 
-   | Variable | Value |
-   |---|---|
-   | `BOT_TOKEN` | Token from BotFather |
-   | `SENDER_EMAIL` | Your Gmail address |
-   | `SENDER_PASSWORD` | Your Gmail App Password |
-   | `SMTP_HOST` | `smtp.gmail.com` |
-   | `SMTP_PORT` | `587` |
+### 2. Create a Gmail App Password
 
-5. Railway will restart the bot automatically — it's live
+The bot sends emails from your Gmail to deliver books to Kindle. Gmail requires an App Password (your regular password won't work).
 
-> Railway's free tier gives 500 hours/month. For a always-on worker, upgrade to the $5/month Hobby plan or use Render's free tier (see below).
+1. Go to [myaccount.google.com](https://myaccount.google.com) and sign in
+2. Click **Security** in the left sidebar
+3. Under "How you sign in to Google", click **2-Step Verification** and turn it on if it isn't already
+4. In the search bar at the top of your Google Account page, type **App Passwords** and click it
+   - Direct link: [myaccount.google.com/apppasswords](https://myaccount.google.com/apppasswords)
+5. Under "App name", type anything — e.g. `kindle-master`
+6. Click **Create**
+7. Google shows a 16-character password like `abcd efgh ijkl mnop` — **copy it now**, it won't be shown again
 
-**Alternative: Render (free, always-on)**
-1. Go to [render.com](https://render.com) → New → Background Worker
-2. Connect your GitHub repo
-3. Set Build Command: `pip install -r requirements.txt`
-4. Set Start Command: `python bot.py`
-5. Add the same environment variables under Environment tab
+---
 
-### Step 4 — First-time user setup (everyone who uses the bot)
+### 3. Fork this repo
 
-Each person who uses the bot needs to do this once:
+1. Click **Fork** at the top-right of this GitHub page
+2. Leave all settings as default and click **Create fork**
 
-**4a. Tell the bot your Kindle email**
+You now have your own copy at `github.com/YOUR_USERNAME/kindle-master`.
 
-Find your Kindle email:
-- Go to [amazon.com](https://amazon.com) → **Account & Lists** → **Manage Your Content and Devices**
-- Click **Preferences** tab → scroll to **Personal Document Settings**
-- Your address is listed under **Send-to-Kindle E-Mail Settings** — looks like `yourname_abc@kindle.com`
+---
 
-Then message the bot:
+### 4. Deploy to Railway
+
+Railway runs the bot in the cloud for free.
+
+1. Go to [railway.app](https://railway.app) and click **Login** → **Login with GitHub**
+2. Authorize Railway to access your GitHub
+3. Click **New Project**
+4. Click **Deploy from GitHub repo**
+5. Find and select your forked `kindle-master` repo
+6. Railway starts deploying — wait for it to finish (usually under a minute)
+7. Click on the service that was created, then click the **Variables** tab
+8. Add each of these variables by clicking **New Variable**:
+
+   | Variable | Value | Notes |
+   |---|---|---|
+   | `BOT_TOKEN` | `7123456789:AAFxxx...` | From BotFather in Step 1 |
+   | `SENDER_EMAIL` | `you@gmail.com` | The Gmail you created the App Password for |
+   | `SENDER_PASSWORD` | `abcd efgh ijkl mnop` | The 16-character App Password from Step 2 |
+   | `SMTP_HOST` | `smtp.gmail.com` | Leave as-is for Gmail |
+   | `SMTP_PORT` | `587` | Leave as-is |
+
+9. After adding all variables, Railway automatically redeploys the bot
+10. Click the **Deployments** tab → click the latest deployment → you should see logs ending in `Bot running...`
+
+Your bot is live. Open Telegram, search for your bot's username, and send `/start` to confirm it responds.
+
+> **Railway free tier note:** Railway's free tier includes 500 hours/month, which isn't enough for an always-on bot. To run 24/7 for free, use **Render** instead (see [Alternative: Render](#alternative-render-free-always-on) below), or upgrade to Railway's $5/month Hobby plan.
+
+---
+
+### Alternative: Render (free, always-on)
+
+Render's free Background Worker tier runs continuously at no cost.
+
+1. Go to [render.com](https://render.com) and sign up / log in with GitHub
+2. Click **New** → **Background Worker**
+3. Select your forked `kindle-master` repo → click **Connect**
+4. Fill in the service settings:
+   - **Name:** `kindle-master` (or anything)
+   - **Region:** pick the one closest to you
+   - **Build Command:** `pip install -r requirements.txt`
+   - **Start Command:** `python bot.py`
+5. Scroll down to **Environment Variables** and add the same 5 variables from the Railway table above
+6. Click **Create Background Worker**
+7. Render builds and starts the bot — check the **Logs** tab for `Bot running...`
+
+---
+
+## User Setup
+
+Do this once before you start sending books. Takes about 2 minutes.
+
+### Step 1 — Find your Kindle email
+
+Every Kindle has a unique `@kindle.com` email address. Amazon delivers documents to your device when you email them to this address.
+
+1. Go to [amazon.com](https://www.amazon.com) and sign in
+2. Click **Account & Lists** (top right) → **Manage Your Content and Devices**
+   - Or go directly: [amazon.com/hz/mycd/myx](https://www.amazon.com/hz/mycd/myx)
+3. Click the **Preferences** tab
+4. Scroll down to **Personal Document Settings**
+5. Under **Send-to-Kindle E-Mail Settings**, find your device and note the address — it looks like:
+   ```
+   yourname_abc123@kindle.com
+   ```
+
+---
+
+### Step 2 — Tell the bot your Kindle email
+
+Open your Telegram bot and send:
+
 ```
 /setup
 ```
-The bot will ask for your Kindle email — paste it in.
 
-**4b. Approve the bot's sender email on Amazon**
-
-Amazon only delivers documents from addresses you've whitelisted.
-
-1. Message the bot `/info` — it shows the sender email address
-2. Go back to **Manage Your Content and Devices** → **Preferences** → **Personal Document Settings** → **Approved Personal Document E-mail List**
-3. Click **Add a new approved e-mail address** → enter the address from `/info` → save
-
-That's it. You're set up.
-
-### Using the bot
-
-```
-# Search by title
-Atomic Habits
-
-# Search by author
-James Clear
-
-# Send a photo of a book cover or spine
-[attach any photo]
-```
-
-The bot shows up to 5 results as buttons. Tap one — the book is downloaded and sent to your Kindle.
-
-**Bot commands:**
-
-| Command | What it does |
-|---|---|
-| `/start` | Intro and quick guide |
-| `/setup` | Save your Kindle email |
-| `/info` | Shows the sender email to whitelist on Amazon |
-| `/help` | Usage tips |
-| `/cancel` | Cancel current operation |
+The bot will ask for your Kindle email address. Paste it in and send. The bot confirms when it's saved.
 
 ---
 
-## CLI — Setup
+### Step 3 — Approve the sender email on Amazon
 
-For running locally from the terminal.
+Amazon only delivers documents from email addresses you've explicitly approved. You need to add the bot's sending address to your allowlist.
 
-### Step 1 — Clone and install
+1. In Telegram, send the bot:
+   ```
+   /info
+   ```
+   The bot replies with the sender email address, e.g. `youremail@gmail.com`
+
+2. Copy that address
+
+3. Go back to Amazon → **Manage Your Content and Devices** → **Preferences** → **Personal Document Settings** → scroll to **Approved Personal Document E-mail List**
+   - Direct link: [amazon.com/hz/mycd/myx#/page/settings/pdoc](https://www.amazon.com/hz/mycd/myx#/page/settings/pdoc)
+
+4. Click **Add a new approved e-mail address**
+
+5. Paste the sender email and click **Add**
+
+That's it. You're ready.
+
+---
+
+## Using the Bot
+
+Open your Telegram bot and just type or send a photo.
+
+**Search by title:**
+```
+Atomic Habits
+```
+
+**Search by author:**
+```
+James Clear
+```
+
+**Photo of a book cover or spine:**
+Just attach and send any photo — the bot reads the text automatically.
+
+The bot replies with up to 5 results as tap-able buttons. Tap one and the book is sent to your Kindle. It usually appears within 1–2 minutes.
+
+**All commands:**
+
+| Command | What it does |
+|---|---|
+| `/start` | Welcome message and quick guide |
+| `/setup` | Save or update your Kindle email |
+| `/info` | Shows the sender email to add to your Amazon approved list |
+| `/help` | Usage tips and setup checklist |
+| `/cancel` | Cancel the current operation |
+
+---
+
+## CLI Setup (optional — desktop only)
+
+If you prefer running the tool from a terminal instead of Telegram.
+
+### Install
 
 ```bash
 git clone https://github.com/Agrimd15/kindle-master.git
 cd kindle-master
 
 python3 -m venv venv
-source venv/bin/activate        # Windows: venv\Scripts\activate
+source venv/bin/activate      # Windows: venv\Scripts\activate
 pip install -r requirements.txt
 ```
 
-For the photo/OCR feature, also install Tesseract:
+For the `--image` feature, install Tesseract:
 
 ```bash
 # macOS
@@ -151,101 +239,94 @@ brew install tesseract
 # Ubuntu/Debian
 sudo apt install tesseract-ocr
 
-# Windows — download from: https://github.com/UB-Mannheim/tesseract/wiki
+# Windows: https://github.com/UB-Mannheim/tesseract/wiki
 ```
 
-### Step 2 — Configure `.env`
+### Configure
 
 ```bash
 cp .env.example .env
 ```
 
-Fill in these fields:
+Open `.env` and fill in:
 
-| Field | Where to find it |
-|---|---|
-| `SENDER_EMAIL` | Your Gmail address |
-| `SENDER_PASSWORD` | Gmail App Password (see bot setup Step 2 above) |
-| `KINDLE_EMAIL` | Your `@kindle.com` address (see bot setup Step 4a above) |
-| `SMTP_HOST` | `smtp.gmail.com` (default) |
-| `SMTP_PORT` | `587` (default) |
+```env
+SENDER_EMAIL=you@gmail.com
+SENDER_PASSWORD=abcd efgh ijkl mnop   # Gmail App Password
+KINDLE_EMAIL=yourname_abc@kindle.com  # Your @kindle.com address
+SMTP_HOST=smtp.gmail.com
+SMTP_PORT=587
+```
 
-**Approve your sender email on Amazon** — same as bot setup Step 4b above. Use your own `SENDER_EMAIL` as the address to whitelist.
+Then add `SENDER_EMAIL` to your Amazon approved senders list (same as User Setup Step 3).
 
-### Step 3 — Run
+### Run
 
 ```bash
 source venv/bin/activate
 
-# By title
 python main.py "Atomic Habits"
-
-# By author
 python main.py "James Clear" --author
-
-# From a photo
 python main.py --image /path/to/photo.jpg
-
-# Interactive prompt
-python main.py
+python main.py   # interactive prompt
 ```
 
 ---
 
 ## Troubleshooting
 
-**"Missing config" on startup**
-→ Copy `.env.example` to `.env` and fill in all required fields.
+**Bot doesn't respond to messages**
+→ Check Railway/Render logs for errors. Make sure `BOT_TOKEN` is set correctly — no extra spaces, copied in full from BotFather.
 
-**Gmail "Authentication failed"**
-→ You need an App Password, not your regular password. See Step 2 of the bot setup.
+**`Bot running...` appears in logs but /start does nothing**
+→ Your `BOT_TOKEN` is wrong or belongs to a different bot. Regenerate it with BotFather (`/mybots` → select your bot → API Token → Revoke and generate new token) and update the variable.
+
+**"You haven't set your Kindle email yet"**
+→ Send `/setup` to the bot and paste your `@kindle.com` address.
 
 **Book not arriving on Kindle**
-→ Your sender email isn't on Amazon's approved list. Complete Step 4b above.
+→ The sender email isn't on your Amazon approved list. Send `/info` to get the address, then add it at: Manage Content & Devices → Preferences → Personal Document Settings → Approved Personal Document E-mail List.
 
-**No results found**
-→ Try a shorter query — just the main title or the author's last name.
+**"Authentication failed" error in logs**
+→ Your `SENDER_PASSWORD` is your regular Gmail password. It must be an App Password. Create one at [myaccount.google.com/apppasswords](https://myaccount.google.com/apppasswords).
 
-**OCR reads wrong text from photo**
-→ Make sure Tesseract is installed (`tesseract --version`). Use a well-lit, in-focus photo.
+**"No results found"**
+→ Shorten the query. Try just the main title without the subtitle, or just the author's last name.
 
-**Railway deploy not starting**
-→ Check that `BOT_TOKEN` is set in your Railway environment variables. Logs are under the Deployments tab.
+**OCR returns wrong text from photo**
+→ Use a well-lit photo where the title is clearly visible. Tesseract works best on horizontal text with good contrast.
+
+**Railway bot goes offline after ~20 days**
+→ Railway's free tier has a 500 hour/month limit. Either switch to Render (free, no limit) or upgrade to Railway Hobby ($5/month).
 
 ---
 
-## Project structure
+## Project Structure
 
 ```
 kindle-master/
-├── bot.py          # Telegram bot — entry point for hosted/mobile use
-├── main.py         # CLI — entry point for local/terminal use
-├── search.py       # Anna's Archive search + Libgen epub download
-├── sender.py       # SMTP email delivery to Kindle
-├── ocr.py          # Extract book title from photo via Tesseract
-├── db.py           # SQLite store for per-user Kindle emails (bot only)
-├── config.py       # Loads .env and validates required fields
-├── Procfile        # Railway/Render worker process definition
-├── nixpacks.toml   # Installs Tesseract on Railway automatically
+├── bot.py            # Telegram bot — for hosted/mobile use
+├── main.py           # CLI — for local terminal use
+├── search.py         # Anna's Archive search + Libgen epub download
+├── sender.py         # SMTP email delivery to Kindle
+├── ocr.py            # Extract text from photo via Tesseract
+├── db.py             # SQLite store for per-user Kindle emails
+├── config.py         # Loads .env, validates required fields
+├── Procfile          # Tells Railway/Render to run bot.py as a worker
+├── nixpacks.toml     # Installs Tesseract automatically on Railway
 ├── requirements.txt
-└── .env.example    # Config template — copy to .env and fill in
+└── .env.example      # Config template — copy to .env and fill in
 ```
 
 ---
 
-## SMTP providers
+## Other SMTP Providers
 
-| Provider | `SMTP_HOST` | `SMTP_PORT` | Password type |
+| Provider | `SMTP_HOST` | `SMTP_PORT` | Password |
 |---|---|---|---|
 | Gmail | `smtp.gmail.com` | `587` | App Password |
-| Outlook/Hotmail | `smtp.office365.com` | `587` | App Password |
+| Outlook / Hotmail | `smtp.office365.com` | `587` | App Password |
 | iCloud | `smtp.mail.me.com` | `587` | App-specific password |
-
----
-
-## Contributing
-
-Pull requests welcome. The two core modules are `search.py` (scraping + download) and `sender.py` (email delivery). The bot logic lives entirely in `bot.py`.
 
 ---
 
