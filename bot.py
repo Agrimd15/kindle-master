@@ -275,7 +275,7 @@ async def handle_pick(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
 
             safe_title = "".join(c for c in book["title"] if c.isalnum() or c in " _-")[:50]
             dest = os.path.join(tempfile.gettempdir(), f"{user_id}_{safe_title}.epub")
-            download_epub(dl_url, dest)
+            dest = download_epub(dl_url, dest)  # actual path may differ (e.g. .mobi)
             size_kb = os.path.getsize(dest) // 1024
 
             await query.edit_message_text(f"Downloaded {size_kb} KB. Sending to Kindle...")
