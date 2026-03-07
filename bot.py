@@ -15,6 +15,7 @@ Messages:
 
 import logging
 import os
+import re
 import tempfile
 
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
@@ -180,18 +181,28 @@ async def _search_and_show(update: Update, query: str) -> None:
 
     _results_cache[user_id] = results
 
-    keyboard = [
-        [InlineKeyboardButton(
-            f"{r['title'][:55]}  —  {r['author'][:25]}",
-            callback_data=f"pick:{i}",
-        )]
-        for i, r in enumerate(results)
+    # Build numbered list as message text so titles aren't truncated by button width
+    lines = []
+    for i, r in enumerate(results, 1):
+        title = r["title"]
+        author = r["author"]
+        # Trim subtitles (everything after the first colon or em-dash)
+        short_title = re.split(r"[:\u2014]", title)[0].strip()
+        lines.append(f"{i}. *{short_title}*\n    {author}")
+
+    list_text = "\n\n".join(lines) + "\n\nTap a number to send it to your Kindle:"
+
+    # Number-only buttons in a single row — stays compact on mobile
+    number_buttons = [
+        InlineKeyboardButton(str(i + 1), callback_data=f"pick:{i}")
+        for i in range(len(results))
     ]
-    keyboard.append([InlineKeyboardButton("Cancel", callback_data="pick:cancel")])
+    keyboard = [number_buttons, [InlineKeyboardButton("✕ Cancel", callback_data="pick:cancel")]]
 
     await status.edit_text(
-        "Pick a result:",
+        list_text,
         reply_markup=InlineKeyboardMarkup(keyboard),
+        parse_mode="Markdown",
     )
 
 
@@ -252,6 +263,9 @@ async def handle_pick(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
 # ── App setup ────────────────────────────────────────────────────────────────
 
 def main() -> None:
+    import asyncio
+    asyncio.set_event_loop(asyncio.new_event_loop())
+
     config.validate_bot()
 
     app = Application.builder().token(config.BOT_TOKEN).build()
