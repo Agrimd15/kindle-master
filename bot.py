@@ -32,7 +32,7 @@ from telegram.ext import (
 
 import config
 from db import get_kindle_email, set_kindle_email
-from search import search_books, get_download_url, download_epub
+from search import search_books, get_download_urls, download_epub
 from sender import send_to_kindle
 
 logging.basicConfig(
@@ -209,7 +209,7 @@ async def _search_and_show(update: Update, query: str) -> None:
     _track(user_id, status)
 
     try:
-        results = search_books(query, limit=3)
+        results = search_books(query, limit=8)
     except Exception as e:
         await status.edit_text(f"Search failed: {e}")
         return
@@ -220,10 +220,11 @@ async def _search_and_show(update: Update, query: str) -> None:
         )
         return
 
-    _results_cache[user_id] = results
+    _results_cache[user_id] = results  # cache all 8 for fallback during download
 
+    display = results[:3]  # show top 3 to user
     lines = []
-    for i, r in enumerate(results, 1):
+    for i, r in enumerate(display, 1):
         short_title = re.split(r"[:\u2014]", r["title"])[0].strip()
         lines.append(f"{i}. *{short_title}*\n    {r['author']}")
 
@@ -231,7 +232,7 @@ async def _search_and_show(update: Update, query: str) -> None:
 
     number_buttons = [
         InlineKeyboardButton(str(i + 1), callback_data=f"pick:{i}")
-        for i in range(len(results))
+        for i in range(len(display))
     ]
     keyboard = [number_buttons, [InlineKeyboardButton("✕ Cancel", callback_data="pick:cancel")]]
 
@@ -268,31 +269,33 @@ async def handle_pick(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
     await query.edit_message_text(f'Downloading "{candidates[0]["title"]}"...')
 
     for book in candidates:
-        try:
-            dl_url = get_download_url(book["md5"])
-            if not dl_url:
-                continue
-
-            safe_title = "".join(c for c in book["title"] if c.isalnum() or c in " _-")[:50]
-            dest = os.path.join(tempfile.gettempdir(), f"{user_id}_{safe_title}.epub")
-            dest = download_epub(dl_url, dest)  # actual path may differ (e.g. .mobi)
-            size_kb = os.path.getsize(dest) // 1024
-
-            await query.edit_message_text(f"Downloaded {size_kb} KB. Sending to Kindle...")
-
-            send_to_kindle(dest, book["title"], kindle_email=kindle_email)
-            os.remove(dest)
-
-            await query.edit_message_text(
-                f'"{book["title"]}" is on its way to your Kindle.\n\n'
-                f"_Usually arrives within 1–2 minutes._",
-                parse_mode="Markdown",
-            )
-            return
-
-        except Exception as e:
-            log.warning("Download attempt failed for %s: %s", book["title"][:40], e)
+        dl_urls = get_download_urls(book["md5"])
+        if not dl_urls:
+            log.warning("No download URLs for %s", book["title"][:40])
             continue
+
+        for dl_url in dl_urls:
+            try:
+                safe_title = "".join(c for c in book["title"] if c.isalnum() or c in " _-")[:50]
+                dest = os.path.join(tempfile.gettempdir(), f"{user_id}_{safe_title}.epub")
+                dest = download_epub(dl_url, dest)  # actual path may differ (e.g. .mobi)
+                size_kb = os.path.getsize(dest) // 1024
+
+                await query.edit_message_text(f"Downloaded {size_kb} KB. Sending to Kindle...")
+
+                send_to_kindle(dest, book["title"], kindle_email=kindle_email)
+                os.remove(dest)
+
+                await query.edit_message_text(
+                    f'"{book["title"]}" is on its way to your Kindle.\n\n'
+                    f"_Usually arrives within 1–2 minutes._",
+                    parse_mode="Markdown",
+                )
+                return
+
+            except Exception as e:
+                log.warning("URL %s failed for %s: %s", dl_url[:60], book["title"][:40], e)
+                continue
 
     await query.edit_message_text(
         "Couldn't download any of the results. Try searching again with a different title."
