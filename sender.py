@@ -22,7 +22,10 @@ def send_to_kindle(epub_path: str, book_title: str = "Book", kindle_email: str |
     msg = MIMEMultipart()
     msg["From"] = config.SENDER_EMAIL
     msg["To"] = to
-    msg["Subject"] = "convert"  # Amazon converts epub → mobi when subject is "convert"
+    # "convert" tells Amazon to convert to Kindle format (needed for epub/pdf/doc)
+    # mobi/azw files are already Kindle-native — subject doesn't matter but "convert" is safe
+    ext = os.path.splitext(epub_path)[1].lower()
+    msg["Subject"] = "" if ext in (".mobi", ".azw", ".azw3") else "convert"
 
     msg.attach(MIMEText(f"Sending: {book_title}", "plain"))
 
