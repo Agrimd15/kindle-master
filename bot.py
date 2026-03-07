@@ -32,7 +32,7 @@ from telegram.ext import (
 
 import config
 from db import get_kindle_email, set_kindle_email
-from search import search_books, get_download_urls, download_epub
+from search import search_books, get_download_urls, download_book
 from sender import send_to_kindle
 
 logging.basicConfig(
@@ -269,16 +269,11 @@ async def handle_pick(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
     await query.edit_message_text(f'Downloading "{candidates[0]["title"]}"...')
 
     for book in candidates:
-        dl_urls = get_download_urls(book["md5"])
-        if not dl_urls:
-            log.warning("No download URLs for %s", book["title"][:40])
-            continue
-
-        for dl_url in dl_urls:
+        for dl_url in get_download_urls(book["md5"]):
             try:
                 safe_title = "".join(c for c in book["title"] if c.isalnum() or c in " _-")[:50]
                 dest = os.path.join(tempfile.gettempdir(), f"{user_id}_{safe_title}.epub")
-                dest = download_epub(dl_url, dest)  # actual path may differ (e.g. .mobi)
+                dest = download_book(dl_url, dest)
                 size_kb = os.path.getsize(dest) // 1024
 
                 await query.edit_message_text(f"Downloaded {size_kb} KB. Sending to Kindle...")
@@ -294,7 +289,7 @@ async def handle_pick(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
                 return
 
             except Exception as e:
-                log.warning("URL %s failed for %s: %s", dl_url[:60], book["title"][:40], e)
+                log.warning("Failed %s | %s: %s", book["title"][:30], dl_url[:50], e)
                 continue
 
     await query.edit_message_text(

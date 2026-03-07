@@ -8,24 +8,21 @@ import config
 
 
 def send_to_kindle(epub_path: str, book_title: str = "Book", kindle_email: str | None = None) -> None:
-    """Email the epub file to a Kindle address.
-
-    kindle_email overrides the KINDLE_EMAIL env var — used by the bot
-    so each user can have their own Kindle address.
-    """
+    """Email the epub/pdf file to a Kindle address."""
     config.validate_smtp()
 
     to = kindle_email or config.KINDLE_EMAIL
     if not to:
         raise ValueError("No Kindle email address provided.")
 
+    ext = os.path.splitext(epub_path)[1].lower()
+    if ext not in {".epub", ".pdf"}:
+        raise ValueError(f"Unsupported format: {ext}")
+
     msg = MIMEMultipart()
     msg["From"] = config.SENDER_EMAIL
     msg["To"] = to
-    # "convert" tells Amazon to convert to Kindle format (needed for epub/pdf/doc)
-    # mobi/azw files are already Kindle-native — subject doesn't matter but "convert" is safe
-    ext = os.path.splitext(epub_path)[1].lower()
-    msg["Subject"] = "" if ext in (".mobi", ".azw", ".azw3") else "convert"
+    msg["Subject"] = "convert"
 
     msg.attach(MIMEText(f"Sending: {book_title}", "plain"))
 

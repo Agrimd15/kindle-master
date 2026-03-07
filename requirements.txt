@@ -7,3 +7,4 @@ Pillow
 cloudscraper
 lxml
 python-telegram-bot==21.10
+playwright
