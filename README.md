@@ -6,7 +6,7 @@ Send a book title — or a photo of the cover — to a Telegram bot. It finds th
 
 ```
 You: "Atomic Habits"
-Bot: [shows 5 results as buttons]
+Bot: [shows 3 results as buttons]
 You: [tap first result]
 Bot: "Atomic Habits is on its way to your Kindle."
 ```
@@ -201,7 +201,7 @@ James Clear
 **Photo of a book cover or spine:**
 Just attach and send any photo — the bot reads the text automatically.
 
-The bot replies with up to 5 results as tap-able buttons. Tap one and the book is sent to your Kindle. It usually appears within 1–2 minutes.
+The bot replies with up to 3 results as tap-able buttons. Tap one and the book is sent to your Kindle. It usually appears within 1–2 minutes.
 
 **All commands:**
 
@@ -211,6 +211,7 @@ The bot replies with up to 5 results as tap-able buttons. Tap one and the book i
 | `/setup` | Save or update your Kindle email |
 | `/info` | Shows the sender email to add to your Amazon approved list |
 | `/help` | Usage tips and setup checklist |
+| `/clear` | Delete recent bot messages to clean up the chat |
 | `/cancel` | Cancel the current operation |
 
 ---
