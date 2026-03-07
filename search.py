@@ -8,11 +8,18 @@ LIBGEN = "https://libgen.li"
 scraper = cloudscraper.create_scraper()
 
 
+# Exclude sources that don't have Libgen download links
+_EXCLUDE_SOURCES = ["zlib", "upload", "ia", "hathi", "duxiu", "nexusstc", "zlibzh", "magzdb", "scihub"]
+
+
 def search_books(query: str, limit: int = 3) -> list[dict]:
-    """Search Anna's Archive for epub books, return top results."""
+    """Search Anna's Archive for epub books, filtered to Libgen sources."""
+    params = [("q", query), ("ext", "epub")]
+    for src in _EXCLUDE_SOURCES:
+        params.append(("src", f"anti__{src}"))
     resp = scraper.get(
         f"{BASE}/search",
-        params=[("q", query), ("ext", "epub")],
+        params=params,
         timeout=20,
     )
     resp.raise_for_status()
