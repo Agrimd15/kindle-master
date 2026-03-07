@@ -260,38 +260,43 @@ async def handle_pick(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
         await query.edit_message_text("Session expired. Search again.")
         return
 
-    book = results[idx]
     kindle_email = get_kindle_email(user_id)
 
-    await query.edit_message_text(f'Downloading "{book["title"]}"...')
+    # Try picked result first, then fall through remaining results silently
+    candidates = [results[idx]] + [r for i, r in enumerate(results) if i != idx]
 
-    try:
-        dl_url = get_download_url(book["md5"])
-        if not dl_url:
+    await query.edit_message_text(f'Downloading "{candidates[0]["title"]}"...')
+
+    for book in candidates:
+        try:
+            dl_url = get_download_url(book["md5"])
+            if not dl_url:
+                continue
+
+            safe_title = "".join(c for c in book["title"] if c.isalnum() or c in " _-")[:50]
+            dest = os.path.join(tempfile.gettempdir(), f"{user_id}_{safe_title}.epub")
+            download_epub(dl_url, dest)
+            size_kb = os.path.getsize(dest) // 1024
+
+            await query.edit_message_text(f"Downloaded {size_kb} KB. Sending to Kindle...")
+
+            send_to_kindle(dest, book["title"], kindle_email=kindle_email)
+            os.remove(dest)
+
             await query.edit_message_text(
-                "Couldn't find a download link for that one. Try another result."
+                f'"{book["title"]}" is on its way to your Kindle.\n\n'
+                f"_Usually arrives within 1–2 minutes._",
+                parse_mode="Markdown",
             )
             return
 
-        safe_title = "".join(c for c in book["title"] if c.isalnum() or c in " _-")[:50]
-        dest = os.path.join(tempfile.gettempdir(), f"{user_id}_{safe_title}.epub")
-        download_epub(dl_url, dest)
-        size_kb = os.path.getsize(dest) // 1024
+        except Exception as e:
+            log.warning("Download attempt failed for %s: %s", book["title"][:40], e)
+            continue
 
-        await query.edit_message_text(f"Downloaded {size_kb} KB. Sending to Kindle...")
-
-        send_to_kindle(dest, book["title"], kindle_email=kindle_email)
-        os.remove(dest)
-
-        await query.edit_message_text(
-            f'"{book["title"]}" is on its way to your Kindle.\n\n'
-            f"_Usually arrives within 1–2 minutes._",
-            parse_mode="Markdown",
-        )
-
-    except Exception as e:
-        log.exception("Error delivering book")
-        await query.edit_message_text(f"Something went wrong: {e}")
+    await query.edit_message_text(
+        "Couldn't download any of the results. Try searching again with a different title."
+    )
 
 
 # ── OCR confirm / manual correction ─────────────────────────────────────────
