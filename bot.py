@@ -40,6 +40,7 @@ logging.basicConfig(
 log = logging.getLogger(__name__)
 
 AWAITING_EMAIL = 1
+AWAITING_MANUAL_QUERY = 2
 
 # In-memory cache of search results per user: {user_id: [result_dicts]}
 # Keyed by user_id so concurrent users don't collide.
@@ -147,13 +148,21 @@ async def handle_photo(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
 
     if not query.strip():
         await msg.edit_text(
-            "Couldn't read any text from that photo. "
-            "Try a clearer shot, or just type the title."
+            "Couldn't read any text from that photo. Just type the title instead."
         )
         return
 
-    await msg.edit_text(f"Detected: _{query[:80]}_\n\nSearching...", parse_mode="Markdown")
-    await _search_and_show(update, query)
+    # Show what was detected and let user confirm or correct before searching
+    keyboard = InlineKeyboardMarkup([
+        [InlineKeyboardButton(f'Search "{query[:40]}"', callback_data="ocr:confirm")],
+        [InlineKeyboardButton("Type it manually instead", callback_data="ocr:manual")],
+    ])
+    ctx.user_data["ocr_query"] = query
+    await msg.edit_text(
+        f"Detected:\n*{query[:80]}*\n\nDoes that look right?",
+        reply_markup=keyboard,
+        parse_mode="Markdown",
+    )
 
 
 async def _search_and_show(update: Update, query: str) -> None:
@@ -260,6 +269,35 @@ async def handle_pick(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
         await query.edit_message_text(f"Something went wrong: {e}")
 
 
+# ── OCR confirm / manual correction ─────────────────────────────────────────
+
+async def handle_ocr_callback(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
+    query = update.callback_query
+    await query.answer()
+
+    if query.data == "ocr:confirm":
+        search_query = ctx.user_data.get("ocr_query", "")
+        if not search_query:
+            await query.edit_message_text("Session expired. Send the photo again.")
+            return
+        await query.edit_message_text(f'Searching for "*{search_query[:60]}*"...', parse_mode="Markdown")
+        await _search_and_show(update, search_query)
+
+    elif query.data == "ocr:manual":
+        await query.edit_message_text("Type the book title and I'll search for it:")
+        ctx.user_data["awaiting_manual"] = True
+
+
+async def handle_manual_query(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
+    """Handles a typed correction after the user chose 'Type it manually'."""
+    if not ctx.user_data.get("awaiting_manual"):
+        # Not in manual correction mode — treat as a regular search
+        await handle_text(update, ctx)
+        return
+    ctx.user_data.pop("awaiting_manual")
+    await _search_and_show(update, update.message.text.strip())
+
+
 # ── App setup ────────────────────────────────────────────────────────────────
 
 def main() -> None:
@@ -281,8 +319,9 @@ def main() -> None:
     app.add_handler(CommandHandler("info", cmd_info))
     app.add_handler(setup_conv)
     app.add_handler(CallbackQueryHandler(handle_pick, pattern=r"^pick:"))
+    app.add_handler(CallbackQueryHandler(handle_ocr_callback, pattern=r"^ocr:"))
     app.add_handler(MessageHandler(filters.PHOTO, handle_photo))
-    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_text))
+    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_manual_query))
 
     log.info("Bot running...")
     app.run_polling(drop_pending_updates=True)
