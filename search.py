@@ -14,8 +14,11 @@ scraper = cloudscraper.create_scraper()
 
 def search_books(query: str, limit: int = 10) -> list[dict]:
     """Search Anna's Archive for epub books, filtered to Libgen sources only."""
-    url = f"{BASE}/search?q={query}&ext=epub&{_SOURCE_FILTER}"
-    resp = scraper.get(url, timeout=20)
+    # Build params list — requests handles URL encoding for the query automatically
+    params = [("q", query), ("ext", "epub")]
+    for src in _NON_LIBGEN:
+        params.append(("src", f"anti__{src}"))
+    resp = scraper.get(f"{BASE}/search", params=params, timeout=20)
     resp.raise_for_status()
 
     soup = BeautifulSoup(resp.text, "lxml")
