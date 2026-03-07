@@ -95,20 +95,25 @@ async def cmd_info(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
 # ── /clear ────────────────────────────────────────────────────────────────────
 
 async def cmd_clear(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
-    user_id = update.effective_user.id
     chat_id = update.effective_chat.id
+    clear_id = update.message.message_id
 
-    msg_ids = _tracked_msgs.pop(user_id, [])
-    for msg_id in msg_ids:
+    # Attempt to delete the last 200 messages by ID range.
+    # Bot messages succeed; user messages fail silently (Telegram restricts that).
+    ids = list(range(max(1, clear_id - 199), clear_id + 1))
+
+    # deleteMessages accepts up to 100 IDs at once (Bot API 6.0)
+    for i in range(0, len(ids), 100):
         try:
-            await ctx.bot.delete_message(chat_id, msg_id)
+            await ctx.bot.delete_messages(chat_id, ids[i:i + 100])
         except Exception:
-            pass
+            for msg_id in ids[i:i + 100]:
+                try:
+                    await ctx.bot.delete_message(chat_id, msg_id)
+                except Exception:
+                    pass
 
-    try:
-        await update.message.delete()
-    except Exception:
-        pass
+    _tracked_msgs.pop(update.effective_user.id, None)
 
 
 # ── /setup conversation ──────────────────────────────────────────────────────
