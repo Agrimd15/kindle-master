@@ -6,6 +6,7 @@ Commands:
   /setup  — save your Kindle email
   /info   — show the sender email you need to whitelist on Amazon
   /help   — usage tips
+  /clear  — delete recent bot messages from the chat
   /cancel — cancel current operation
 
 Messages:
@@ -40,11 +41,17 @@ logging.basicConfig(
 log = logging.getLogger(__name__)
 
 AWAITING_EMAIL = 1
-AWAITING_MANUAL_QUERY = 2
 
 # In-memory cache of search results per user: {user_id: [result_dicts]}
-# Keyed by user_id so concurrent users don't collide.
 _results_cache: dict[int, list[dict]] = {}
+
+# Track bot message IDs per user so /clear can delete them
+_tracked_msgs: dict[int, list[int]] = {}
+
+
+def _track(user_id: int, msg) -> None:
+    """Store a bot message ID for later deletion via /clear."""
+    _tracked_msgs.setdefault(user_id, []).append(msg.message_id)
 
 
 # ── Commands ────────────────────────────────────────────────────────────────
@@ -83,6 +90,25 @@ async def cmd_info(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
         "Personal Document Settings → Approved Personal Document E-mail List",
         parse_mode="Markdown",
     )
+
+
+# ── /clear ────────────────────────────────────────────────────────────────────
+
+async def cmd_clear(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
+    user_id = update.effective_user.id
+    chat_id = update.effective_chat.id
+
+    msg_ids = _tracked_msgs.pop(user_id, [])
+    for msg_id in msg_ids:
+        try:
+            await ctx.bot.delete_message(chat_id, msg_id)
+        except Exception:
+            pass
+
+    try:
+        await update.message.delete()
+    except Exception:
+        pass
 
 
 # ── /setup conversation ──────────────────────────────────────────────────────
@@ -131,6 +157,7 @@ async def handle_text(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
 
 async def handle_photo(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
     msg = await update.message.reply_text("Reading photo...")
+    _track(update.effective_user.id, msg)
 
     photo_file = await update.message.photo[-1].get_file()
     with tempfile.NamedTemporaryFile(suffix=".jpg", delete=False) as tmp:
@@ -152,7 +179,6 @@ async def handle_photo(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
         )
         return
 
-    # Show what was detected and let user confirm or correct before searching
     keyboard = InlineKeyboardMarkup([
         [InlineKeyboardButton(f'Search "{query[:40]}"', callback_data="ocr:confirm")],
         [InlineKeyboardButton("Type it manually instead", callback_data="ocr:manual")],
@@ -175,9 +201,10 @@ async def _search_and_show(update: Update, query: str) -> None:
         return
 
     status = await update.message.reply_text(f'Searching for "{query}"...')
+    _track(user_id, status)
 
     try:
-        results = search_books(query, limit=5)
+        results = search_books(query, limit=3)
     except Exception as e:
         await status.edit_text(f"Search failed: {e}")
         return
@@ -190,18 +217,13 @@ async def _search_and_show(update: Update, query: str) -> None:
 
     _results_cache[user_id] = results
 
-    # Build numbered list as message text so titles aren't truncated by button width
     lines = []
     for i, r in enumerate(results, 1):
-        title = r["title"]
-        author = r["author"]
-        # Trim subtitles (everything after the first colon or em-dash)
-        short_title = re.split(r"[:\u2014]", title)[0].strip()
-        lines.append(f"{i}. *{short_title}*\n    {author}")
+        short_title = re.split(r"[:\u2014]", r["title"])[0].strip()
+        lines.append(f"{i}. *{short_title}*\n    {r['author']}")
 
     list_text = "\n\n".join(lines) + "\n\nTap a number to send it to your Kindle:"
 
-    # Number-only buttons in a single row — stays compact on mobile
     number_buttons = [
         InlineKeyboardButton(str(i + 1), callback_data=f"pick:{i}")
         for i in range(len(results))
@@ -239,7 +261,7 @@ async def handle_pick(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
     await query.edit_message_text(f'Downloading "{book["title"]}"...')
 
     try:
-        dl_url = get_download_url(book["url"])
+        dl_url = get_download_url(book["md5"])
         if not dl_url:
             await query.edit_message_text(
                 "Couldn't find a download link for that one. Try another result."
@@ -251,16 +273,14 @@ async def handle_pick(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
         download_epub(dl_url, dest)
         size_kb = os.path.getsize(dest) // 1024
 
-        await query.edit_message_text(
-            f'Downloaded {size_kb} KB. Sending to Kindle...'
-        )
+        await query.edit_message_text(f"Downloaded {size_kb} KB. Sending to Kindle...")
 
         send_to_kindle(dest, book["title"], kindle_email=kindle_email)
         os.remove(dest)
 
         await query.edit_message_text(
             f'"{book["title"]}" is on its way to your Kindle.\n\n'
-            f'_Usually arrives within 1–2 minutes._',
+            f"_Usually arrives within 1–2 minutes._",
             parse_mode="Markdown",
         )
 
@@ -280,7 +300,9 @@ async def handle_ocr_callback(update: Update, ctx: ContextTypes.DEFAULT_TYPE) ->
         if not search_query:
             await query.edit_message_text("Session expired. Send the photo again.")
             return
-        await query.edit_message_text(f'Searching for "*{search_query[:60]}*"...', parse_mode="Markdown")
+        await query.edit_message_text(
+            f'Searching for "*{search_query[:60]}*"...', parse_mode="Markdown"
+        )
         await _search_and_show(update, search_query)
 
     elif query.data == "ocr:manual":
@@ -289,9 +311,7 @@ async def handle_ocr_callback(update: Update, ctx: ContextTypes.DEFAULT_TYPE) ->
 
 
 async def handle_manual_query(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
-    """Handles a typed correction after the user chose 'Type it manually'."""
     if not ctx.user_data.get("awaiting_manual"):
-        # Not in manual correction mode — treat as a regular search
         await handle_text(update, ctx)
         return
     ctx.user_data.pop("awaiting_manual")
@@ -317,6 +337,7 @@ def main() -> None:
     app.add_handler(CommandHandler("start", cmd_start))
     app.add_handler(CommandHandler("help", cmd_help))
     app.add_handler(CommandHandler("info", cmd_info))
+    app.add_handler(CommandHandler("clear", cmd_clear))
     app.add_handler(setup_conv)
     app.add_handler(CallbackQueryHandler(handle_pick, pattern=r"^pick:"))
     app.add_handler(CallbackQueryHandler(handle_ocr_callback, pattern=r"^ocr:"))

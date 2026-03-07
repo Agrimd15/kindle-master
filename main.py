@@ -18,7 +18,6 @@ import config
 
 
 def pick_book(results: list[dict]) -> dict | None:
-    """Prompt user to select from search results."""
     if not results:
         click.echo("No epub results found.")
         return None
@@ -26,7 +25,7 @@ def pick_book(results: list[dict]) -> dict | None:
     click.echo("\nResults:\n")
     for i, book in enumerate(results, 1):
         click.echo(f"  [{i}] {book['title']}")
-        click.echo(f"      {book['author']}  |  {book['meta']}")
+        click.echo(f"      {book['author']}")
         click.echo()
 
     choice = click.prompt("Pick a number (or 0 to cancel)", type=int, default=1)
@@ -38,7 +37,7 @@ def pick_book(results: list[dict]) -> dict | None:
 def run(query: str):
     config.validate()
 
-    click.echo(f"\nSearching Anna's Archive for: \"{query}\" ...")
+    click.echo(f'\nSearching Anna\'s Archive for: "{query}" ...')
     results = search_books(query)
 
     if not results:
@@ -51,17 +50,14 @@ def run(query: str):
         sys.exit(0)
 
     click.echo(f"\nFetching download link for: {book['title']} ...")
-    dl_url = get_download_url(book["url"])
+    dl_url = get_download_url(book["md5"])
 
     if not dl_url:
         click.echo("Could not find a direct download link. Try another result.")
         sys.exit(1)
 
-    click.echo(f"Download URL: {dl_url}")
-
     safe_title = "".join(c for c in book["title"] if c.isalnum() or c in " _-")[:60]
-    filename = f"{safe_title}.epub"
-    dest = os.path.join(tempfile.gettempdir(), filename)
+    dest = os.path.join(tempfile.gettempdir(), f"{safe_title}.epub")
 
     click.echo(f"Downloading epub → {dest} ...")
     download_epub(dl_url, dest)
@@ -71,7 +67,7 @@ def run(query: str):
     click.echo(f"Sending to Kindle ({config.KINDLE_EMAIL}) ...")
     send_to_kindle(dest, book["title"])
 
-    click.echo(f"\nDone! \"{book['title']}\" is on its way to your Kindle.")
+    click.echo(f'\nDone! "{book["title"]}" is on its way to your Kindle.')
     os.remove(dest)
 
 
@@ -86,7 +82,6 @@ def cli(query, image, author):
             from ocr import extract_text_from_image
         except ImportError:
             click.echo("pytesseract not installed. Run: pip install pytesseract Pillow")
-            click.echo("Also install tesseract: brew install tesseract")
             sys.exit(1)
         click.echo(f"Reading text from image: {image}")
         query = extract_text_from_image(image)
