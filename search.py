@@ -84,11 +84,12 @@ def download_epub(url: str, dest_path: str) -> str:
             if chunk:
                 f.write(chunk)
 
+    # Reject HTML error pages; accept epub (PK zip), mobi, azw, and other binary formats
     with open(dest_path, "rb") as f:
         magic = f.read(4)
-    if magic != b"PK\x03\x04":
+    if magic[:1] in (b"<", b"{") or magic == b"":
         import os
         os.remove(dest_path)
-        raise ValueError(f"Downloaded file is not a valid epub (got {magic.hex()})")
+        raise ValueError(f"Server returned an error page instead of the ebook")
 
     return dest_path
