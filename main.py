@@ -12,7 +12,7 @@ import os
 import sys
 import tempfile
 import click
-from search import search_books, get_download_urls, download_book
+from search import search_books, get_download_urls_for_book, download_book
 from sender import send_to_kindle
 import config
 
@@ -50,12 +50,12 @@ def run(query: str):
         sys.exit(0)
 
     click.echo(f"\nFetching download link for: {book['title']} ...")
-    dl_urls = get_download_urls(book["md5"])
+    dl_urls = get_download_urls_for_book(book)
 
     if not dl_urls:
         click.echo("Could not find a direct download link. Try another result.")
         sys.exit(1)
-        
+
     dl_url = dl_urls[0]
 
     safe_title = "".join(c for c in book["title"] if c.isalnum() or c in " _-")[:60]

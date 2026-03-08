@@ -1,33 +1,36 @@
 import os
 import re
-import ssl
-import urllib.request
+from concurrent.futures import ThreadPoolExecutor
 import cloudscraper
 from bs4 import BeautifulSoup
 
-BASE = "https://annas-archive.gl"
-LIBGEN = "https://libgen.li"
+# Anna's Archive mirrors — tried in order, first that returns results wins
+ANNA_MIRRORS = [
+    "https://annas-archive.gl",
+    "https://annas-archive.org",
+    "https://annas-archive.se",
+    "https://welib.org",
+]
+
+# Libgen mirrors — all queried, URLs aggregated
+LIBGEN_MIRRORS = [
+    "https://libgen.li",
+    "https://libgen.pw",
+    "https://libgen.rs",
+    "https://libgen.is",
+]
 
 scraper = cloudscraper.create_scraper()
-
-# SSL context that ignores cert errors — handles CDNs with broken certs (cdn2/cdn3.booksdl.lc)
-_no_verify_ctx = ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
-_no_verify_ctx.check_hostname = False
-_no_verify_ctx.verify_mode = ssl.CERT_NONE
-try:
-    _no_verify_ctx.set_ciphers("DEFAULT:@SECLEVEL=0")
-except ssl.SSLError:
-    pass
 
 _EXCLUDE_SOURCES = ["zlib", "upload", "ia", "hathi", "duxiu", "nexusstc", "zlibzh", "magzdb", "scihub"]
 
 
-def _search_one(query: str, ext: str, limit: int) -> list[dict]:
+def _search_one(query: str, ext: str, limit: int, base: str) -> list[dict]:
     params = [("q", query), ("ext", ext)]
     for src in _EXCLUDE_SOURCES:
         params.append(("src", f"anti__{src}"))
     try:
-        resp = scraper.get(f"{BASE}/search", params=params, timeout=20)
+        resp = scraper.get(f"{base}/search", params=params, timeout=20)
         resp.raise_for_status()
     except Exception:
         return []
@@ -54,7 +57,7 @@ def _search_one(query: str, ext: str, limit: int) -> list[dict]:
         results.append({
             "title": title,
             "author": author,
-            "url": BASE + href,
+            "url": base + href,
             "md5": href[len("/md5/"):],
         })
         if len(results) >= limit:
@@ -63,43 +66,127 @@ def _search_one(query: str, ext: str, limit: int) -> list[dict]:
     return results
 
 
+def _search_ia(query: str, limit: int) -> list[dict]:
+    """Search Internet Archive for epub books."""
+    try:
+        resp = scraper.get(
+            "https://archive.org/advancedsearch.php",
+            params=[
+                ("q", f"{query} format:epub mediatype:texts"),
+                ("fl[]", "identifier"),
+                ("fl[]", "title"),
+                ("fl[]", "creator"),
+                ("rows", limit),
+                ("output", "json"),
+                ("sort", "downloads desc"),
+            ],
+            timeout=20,
+        )
+        resp.raise_for_status()
+        data = resp.json()
+    except Exception:
+        return []
+
+    results = []
+    for doc in data.get("response", {}).get("docs", []):
+        ia_id = doc.get("identifier", "")
+        title = doc.get("title", "")
+        creator = doc.get("creator", "")
+        if isinstance(creator, list):
+            creator = ", ".join(creator)
+        if not ia_id or not title:
+            continue
+        results.append({
+            "title": title,
+            "author": creator,
+            "url": f"https://archive.org/details/{ia_id}",
+            "ia_id": ia_id,
+        })
+
+    return results
+
+
 def search_books(query: str, limit: int = 8) -> list[dict]:
-    """Search Anna's Archive for epub books, filtered to Libgen sources."""
+    """Search for epub books across Anna's Archive mirrors, falling back to Internet Archive."""
     seen: set[str] = set()
     combined: list[dict] = []
 
     def _add(results: list[dict]) -> None:
         for r in results:
-            if r["md5"] not in seen:
-                seen.add(r["md5"])
+            key = r.get("md5") or r.get("ia_id", "")
+            if key and key not in seen:
+                seen.add(key)
                 combined.append(r)
 
-    _add(_search_one(query, "epub", limit))
+    # Try Anna's Archive mirrors in order — stop at first that returns results
+    for mirror in ANNA_MIRRORS:
+        results = _search_one(query, "epub", limit, mirror)
+        if results:
+            _add(results)
+            # Bonus pass with author last name to surface alternate CDN copies
+            author = results[0].get("author", "")
+            last_name = author.split()[-1] if author else ""
+            if last_name and last_name.lower() not in query.lower():
+                _add(_search_one(f"{query} {last_name}", "epub", 4, mirror))
+            break
 
-    # Bonus pass with author last name — surfaces copies on alternate CDNs
-    if combined:
-        author = combined[0].get("author", "")
-        last_name = author.split()[-1] if author else ""
-        if last_name and last_name.lower() not in query.lower():
-            _add(_search_one(f"{query} {last_name}", "epub", 4))
+    # Fall back to Internet Archive if no Anna's Archive results
+    if not combined:
+        _add(_search_ia(query, limit))
 
     return combined
 
 
-def get_download_urls(md5: str) -> list[str]:
-    """Return all direct download URLs from libgen.li ads.php."""
+def _fetch_mirror_urls(mirror: str, md5: str) -> list[str]:
     try:
-        resp = scraper.get(f"{LIBGEN}/ads.php?md5={md5}", timeout=15)
+        resp = scraper.get(f"{mirror}/ads.php?md5={md5}", timeout=15)
         resp.raise_for_status()
     except Exception:
         return []
-    matches = re.findall(r'href="(get\.php\?md5=[^"]+)"', resp.text)
-    return [f"{LIBGEN}/{m}" for m in matches]
+    return [f"{mirror}/{m}" for m in re.findall(r'href="(get\.php\?md5=[^"]+)"', resp.text)]
+
+
+def get_download_urls(md5: str) -> list[str]:
+    """Return direct download URLs from all libgen mirrors in parallel, deduplicated."""
+    seen: set[str] = set()
+    urls: list[str] = []
+    with ThreadPoolExecutor(max_workers=len(LIBGEN_MIRRORS)) as ex:
+        for mirror_urls in ex.map(_fetch_mirror_urls, LIBGEN_MIRRORS, [md5] * len(LIBGEN_MIRRORS)):
+            for url in mirror_urls:
+                if url not in seen:
+                    seen.add(url)
+                    urls.append(url)
+    return urls
+
+
+def get_download_urls_for_book(book: dict) -> list[str]:
+    """Unified resolver: returns download URLs for any book result (libgen or IA)."""
+    if "ia_id" in book:
+        url = get_ia_download_url(book["ia_id"])
+        return [url] if url else []
+    return get_download_urls(book["md5"])
+
+
+def get_ia_download_url(ia_id: str) -> str | None:
+    """Find the epub download URL for an Internet Archive item."""
+    try:
+        resp = scraper.get(f"https://archive.org/metadata/{ia_id}", timeout=15)
+        resp.raise_for_status()
+        data = resp.json()
+    except Exception:
+        return None
+
+    for f in data.get("files", []):
+        name = f.get("name", "")
+        if name.lower().endswith(".epub"):
+            return f"https://archive.org/download/{ia_id}/{name}"
+
+    return None
 
 
 def download_book(url: str, dest_path: str) -> str:
-    """Download epub from libgen CDN. Returns actual saved path.
-    Raises if the file is not epub or appears to be an error page.
+    """Download epub from libgen CDN or Internet Archive. Returns actual saved path.
+    Raises if the file is not epub/pdf or appears to be an error page.
     """
     # Follow the get.php redirect to find the real CDN URL
     redirect = scraper.get(url, allow_redirects=False, timeout=15)
@@ -108,32 +195,23 @@ def download_book(url: str, dest_path: str) -> str:
     else:
         final_url = url
 
-    # Open connection and check Content-Disposition BEFORE downloading body
-    req = urllib.request.Request(
-        final_url,
-        headers={"User-Agent": "Mozilla/5.0 (compatible; kindle-master/1.0)"},
-    )
-    with urllib.request.urlopen(req, context=_no_verify_ctx, timeout=30) as response:
-        cd = response.headers.get("Content-Disposition", "")
-        ext_match = re.search(r"\.(\w+)[\"'\s]?\s*$", cd, re.IGNORECASE)
-        real_ext = ("." + ext_match.group(1).lower()) if ext_match else ".epub"
+    # Stream via cloudscraper (urllib3) — handles libgen CDN SSL quirks better than stdlib
+    response = scraper.get(final_url, stream=True, verify=False, timeout=30)
+    response.raise_for_status()
 
-        if real_ext not in (".epub", ".pdf"):
-            raise ValueError(f"Unsupported format: {real_ext}")
+    cd = response.headers.get("Content-Disposition", "")
+    ext_match = re.search(r"\.(\w+)[\"'\s]?\s*$", cd, re.IGNORECASE)
+    real_ext = ("." + ext_match.group(1).lower()) if ext_match else ".epub"
 
-        base = dest_path.rsplit(".", 1)[0] if "." in os.path.basename(dest_path) else dest_path
-        dest_path = base + ".epub"
+    if real_ext not in (".epub", ".pdf"):
+        raise ValueError(f"Unsupported format: {real_ext}")
 
-        import socket
-        
-        with open(dest_path, "wb") as f:
-            while True:
-                # Enforce a socket timeout specifically for reading chunk data
-                # to prevent slow-loris server hangs
-                socket.setdefaulttimeout(15) 
-                chunk = response.read(16384)
-                if not chunk:
-                    break
+    base = dest_path.rsplit(".", 1)[0] if "." in os.path.basename(dest_path) else dest_path
+    dest_path = base + real_ext
+
+    with open(dest_path, "wb") as f:
+        for chunk in response.iter_content(chunk_size=16384):
+            if chunk:
                 f.write(chunk)
 
     # Reject HTML error pages masquerading as files

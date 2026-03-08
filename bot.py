@@ -32,7 +32,7 @@ from telegram.ext import (
 
 import config
 from db import get_kindle_email, set_kindle_email
-from search import search_books, get_download_urls, download_book
+from search import search_books, get_download_urls_for_book, download_book
 from sender import send_to_kindle
 
 logging.basicConfig(
@@ -271,7 +271,7 @@ async def handle_pick(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
 
     import asyncio
     for book in candidates:
-        dl_urls = await asyncio.to_thread(get_download_urls, book["md5"])
+        dl_urls = await asyncio.to_thread(get_download_urls_for_book, book)
         for dl_url in dl_urls:
             try:
                 safe_title = "".join(c for c in book["title"] if c.isalnum() or c in " _-")[:50]
