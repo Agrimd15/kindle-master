@@ -18,10 +18,15 @@ Works on your phone. No terminal required.
 ## How it works
 
 ```
-Your message → Anna's Archive (search) → Libgen (download) → your Kindle email → Kindle
+Your message
+  → Search: Anna's Archive (4 mirrors) → Internet Archive fallback
+  → Download: all libgen mirrors in parallel, mobi→epub converted automatically
+  → Email to your Kindle
 ```
 
-Anna's Archive is the largest book index online. Libgen hosts the actual files. This tool connects them and emails the result straight to your Kindle.
+The bot searches across multiple Anna's Archive mirrors simultaneously. If none have the book, it falls back to Internet Archive. On the download side it queries all available libgen mirrors in parallel and tries every possible URL before giving up — so even if one CDN is down, it finds another copy.
+
+Mobi files (when epub isn't available) are automatically converted to epub using Calibre before delivery.
 
 ---
 
@@ -107,7 +112,7 @@ Railway runs the bot in the cloud for free.
 
 Your bot is live. Open Telegram, search for your bot's username, and send `/start` to confirm it responds.
 
-> **Railway free tier note:** Railway's free tier includes 500 hours/month, which isn't enough for an always-on bot. To run 24/7 for free, use **Render** instead (see [Alternative: Render](#alternative-render-free-always-on) below), or upgrade to Railway's $5/month Hobby plan.
+> **Railway free tier note:** Railway's free tier includes 500 hours/month, which isn't enough for an always-on bot. To run 24/7 for free, use **Render** instead (see below), or upgrade to Railway's $5/month Hobby plan.
 
 ---
 
@@ -193,6 +198,11 @@ Open your Telegram bot and just type or send a photo.
 Atomic Habits
 ```
 
+**Search by title and author (more accurate):**
+```
+Scaling People Claire Hughes Johnson
+```
+
 **Search by author:**
 ```
 James Clear
@@ -239,8 +249,16 @@ brew install tesseract
 
 # Ubuntu/Debian
 sudo apt install tesseract-ocr
+```
 
-# Windows: https://github.com/UB-Mannheim/tesseract/wiki
+For mobi → epub conversion, install Calibre:
+
+```bash
+# macOS
+brew install --cask calibre
+
+# Ubuntu/Debian
+sudo apt install calibre
 ```
 
 ### Configure
@@ -292,10 +310,13 @@ python main.py   # interactive prompt
 → Your `SENDER_PASSWORD` is your regular Gmail password. It must be an App Password. Create one at [myaccount.google.com/apppasswords](https://myaccount.google.com/apppasswords).
 
 **"No results found"**
-→ Shorten the query. Try just the main title without the subtitle, or just the author's last name.
+→ Shorten the query. Try just the main title without the subtitle, or include the author's last name — e.g. `Scaling People Johnson` instead of the full title.
+
+**"Couldn't download any of the results"**
+→ The book's copies are temporarily on an unreachable CDN. Try again later, or search with slightly different terms to find a copy on a different mirror.
 
 **OCR returns wrong text from photo**
-→ Use a well-lit photo where the title is clearly visible. Tesseract works best on horizontal text with good contrast.
+→ Use a well-lit photo where the title is clearly visible. Works best on horizontal text with good contrast.
 
 **Railway bot goes offline after ~20 days**
 → Railway's free tier has a 500 hour/month limit. Either switch to Render (free, no limit) or upgrade to Railway Hobby ($5/month).
@@ -306,15 +327,17 @@ python main.py   # interactive prompt
 
 ```
 kindle-master/
-├── bot.py            # Telegram bot — for hosted/mobile use
+├── bot.py            # Telegram bot — handles all user interactions
 ├── main.py           # CLI — for local terminal use
-├── search.py         # Anna's Archive search + Libgen epub download
+├── search.py         # Multi-source search (Anna's Archive mirrors + Internet Archive)
+│                     # and download (parallel libgen mirrors, mobi→epub via Calibre)
 ├── sender.py         # SMTP email delivery to Kindle
 ├── ocr.py            # Extract text from photo via Tesseract
 ├── db.py             # SQLite store for per-user Kindle emails
 ├── config.py         # Loads .env, validates required fields
+├── Dockerfile        # Docker deployment (includes Tesseract + Calibre)
 ├── Procfile          # Tells Railway/Render to run bot.py as a worker
-├── nixpacks.toml     # Installs Tesseract automatically on Railway
+├── nixpacks.toml     # Installs Tesseract + Calibre automatically on Railway
 ├── requirements.txt
 └── .env.example      # Config template — copy to .env and fill in
 ```
