@@ -209,7 +209,8 @@ async def _search_and_show(update: Update, query: str) -> None:
     _track(user_id, status)
 
     try:
-        results = search_books(query, limit=8)
+        import asyncio
+        results = await asyncio.to_thread(search_books, query, limit=8)
     except Exception as e:
         await status.edit_text(f"Search failed: {e}")
         return
@@ -268,12 +269,14 @@ async def handle_pick(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
 
     await query.edit_message_text(f'Downloading "{candidates[0]["title"]}"...')
 
+    import asyncio
     for book in candidates:
-        for dl_url in get_download_urls(book["md5"]):
+        dl_urls = await asyncio.to_thread(get_download_urls, book["md5"])
+        for dl_url in dl_urls:
             try:
                 safe_title = "".join(c for c in book["title"] if c.isalnum() or c in " _-")[:50]
                 dest = os.path.join(tempfile.gettempdir(), f"{user_id}_{safe_title}.epub")
-                dest = download_book(dl_url, dest)
+                dest = await asyncio.to_thread(download_book, dl_url, dest)
                 size_kb = os.path.getsize(dest) // 1024
 
                 await query.edit_message_text(f"Downloaded {size_kb} KB. Sending to Kindle...")

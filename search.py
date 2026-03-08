@@ -113,7 +113,7 @@ def download_book(url: str, dest_path: str) -> str:
         final_url,
         headers={"User-Agent": "Mozilla/5.0 (compatible; kindle-master/1.0)"},
     )
-    with urllib.request.urlopen(req, context=_no_verify_ctx, timeout=120) as response:
+    with urllib.request.urlopen(req, context=_no_verify_ctx, timeout=30) as response:
         cd = response.headers.get("Content-Disposition", "")
         ext_match = re.search(r"\.(\w+)[\"'\s]?\s*$", cd, re.IGNORECASE)
         real_ext = ("." + ext_match.group(1).lower()) if ext_match else ".epub"
@@ -124,8 +124,13 @@ def download_book(url: str, dest_path: str) -> str:
         base = dest_path.rsplit(".", 1)[0] if "." in os.path.basename(dest_path) else dest_path
         dest_path = base + ".epub"
 
+        import socket
+        
         with open(dest_path, "wb") as f:
             while True:
+                # Enforce a socket timeout specifically for reading chunk data
+                # to prevent slow-loris server hangs
+                socket.setdefaulttimeout(15) 
                 chunk = response.read(16384)
                 if not chunk:
                     break
