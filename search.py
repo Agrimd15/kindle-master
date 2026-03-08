@@ -221,7 +221,8 @@ def download_book(url: str, dest_path: str) -> str:
     final_url = redirect.headers.get("Location", url) if redirect.status_code in (301, 302, 307, 308) else url
 
     # Use SSL-bypassing session for CDN downloads
-    response = _dl_session.get(final_url, stream=True, timeout=30)
+    # Short connect timeout (6s) so dead CDNs fail fast; longer read timeout for big files
+    response = _dl_session.get(final_url, stream=True, timeout=(6, 60))
     response.raise_for_status()
 
     cd = response.headers.get("Content-Disposition", "")
