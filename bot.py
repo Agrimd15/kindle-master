@@ -270,30 +270,40 @@ async def handle_pick(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
     await query.edit_message_text(f'Downloading "{candidates[0]["title"]}"...')
 
     import asyncio
-    for book in candidates:
-        dl_urls = await asyncio.to_thread(get_download_urls_for_book, book)
-        for dl_url in dl_urls:
-            try:
-                safe_title = "".join(c for c in book["title"] if c.isalnum() or c in " _-")[:50]
-                dest = os.path.join(tempfile.gettempdir(), f"{user_id}_{safe_title}.epub")
-                dest = await asyncio.to_thread(download_book, dl_url, dest)
-                size_kb = os.path.getsize(dest) // 1024
 
-                await query.edit_message_text(f"Downloaded {size_kb} KB. Sending to Kindle...")
+    # Collect all download URLs from all candidates in parallel
+    url_lists = await asyncio.gather(
+        *[asyncio.to_thread(get_download_urls_for_book, book) for book in candidates]
+    )
 
-                send_to_kindle(dest, book["title"], kindle_email=kindle_email)
-                os.remove(dest)
+    # Flatten to a single ordered list: picked book's URLs first, then fallbacks
+    all_urls = [
+        (dl_url, book)
+        for book, urls in zip(candidates, url_lists)
+        for dl_url in urls
+    ]
 
-                await query.edit_message_text(
-                    f'"{book["title"]}" is on its way to your Kindle.\n\n'
-                    f"_Usually arrives within 1–2 minutes._",
-                    parse_mode="Markdown",
-                )
-                return
+    for dl_url, book in all_urls:
+        try:
+            safe_title = "".join(c for c in book["title"] if c.isalnum() or c in " _-")[:50]
+            dest = os.path.join(tempfile.gettempdir(), f"{user_id}_{safe_title}.epub")
+            dest = await asyncio.to_thread(download_book, dl_url, dest)
+            size_kb = os.path.getsize(dest) // 1024
 
-            except Exception as e:
-                log.warning("Failed %s | %s: %s", book["title"][:30], dl_url[:50], e)
-                continue
+            await query.edit_message_text(f"Downloaded {size_kb} KB. Sending to Kindle...")
+
+            send_to_kindle(dest, book["title"], kindle_email=kindle_email)
+            os.remove(dest)
+
+            await query.edit_message_text(
+                f'"{book["title"]}" is on its way to your Kindle.\n\n'
+                f"_Usually arrives within 1–2 minutes._",
+                parse_mode="Markdown",
+            )
+            return
+
+        except Exception as e:
+            log.warning("Failed %s | %s: %s", book["title"][:30], dl_url[:50], e)
 
     await query.edit_message_text(
         "Couldn't download any of the results. Try searching again with a different title."
