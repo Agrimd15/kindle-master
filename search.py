@@ -1,6 +1,12 @@
 import os
 import re
+import shutil
+import ssl
+import subprocess
 from concurrent.futures import ThreadPoolExecutor
+
+import requests
+from requests.adapters import HTTPAdapter
 import cloudscraper
 from bs4 import BeautifulSoup
 
@@ -21,6 +27,27 @@ LIBGEN_MIRRORS = [
 ]
 
 scraper = cloudscraper.create_scraper()
+
+# Separate session for CDN downloads with SSL verification disabled.
+# verify=False on cloudscraper broke in Python 3.14 — need a proper HTTPAdapter.
+class _NoVerifyAdapter(HTTPAdapter):
+    def init_poolmanager(self, *args, **kwargs):
+        ctx = ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
+        ctx.check_hostname = False
+        ctx.verify_mode = ssl.CERT_NONE
+        try:
+            ctx.set_ciphers("DEFAULT:@SECLEVEL=0")
+        except ssl.SSLError:
+            pass
+        kwargs["ssl_context"] = ctx
+        super().init_poolmanager(*args, **kwargs)
+
+_dl_session = requests.Session()
+_dl_session.headers["User-Agent"] = "Mozilla/5.0"
+_dl_session.mount("https://", _NoVerifyAdapter())
+_dl_session.mount("http://", _NoVerifyAdapter())
+
+_CALIBRE = shutil.which("ebook-convert")
 
 _EXCLUDE_SOURCES = ["zlib", "upload", "ia", "hathi", "duxiu", "nexusstc", "zlibzh", "magzdb", "scihub"]
 
@@ -185,40 +212,48 @@ def get_ia_download_url(ia_id: str) -> str | None:
 
 
 def download_book(url: str, dest_path: str) -> str:
-    """Download epub from libgen CDN or Internet Archive. Returns actual saved path.
-    Raises if the file is not epub/pdf or appears to be an error page.
+    """Download epub/mobi from libgen CDN or Internet Archive. Returns path to an epub.
+    Mobi files are converted to epub via calibre if available.
+    Raises on unsupported format or error page.
     """
     # Follow the get.php redirect to find the real CDN URL
     redirect = scraper.get(url, allow_redirects=False, timeout=15)
-    if redirect.status_code in (301, 302, 307, 308):
-        final_url = redirect.headers.get("Location", url)
-    else:
-        final_url = url
+    final_url = redirect.headers.get("Location", url) if redirect.status_code in (301, 302, 307, 308) else url
 
-    # Stream via cloudscraper (urllib3) — handles libgen CDN SSL quirks better than stdlib
-    response = scraper.get(final_url, stream=True, verify=False, timeout=30)
+    # Use SSL-bypassing session for CDN downloads
+    response = _dl_session.get(final_url, stream=True, timeout=30)
     response.raise_for_status()
 
     cd = response.headers.get("Content-Disposition", "")
     ext_match = re.search(r"\.(\w+)[\"'\s]?\s*$", cd, re.IGNORECASE)
     real_ext = ("." + ext_match.group(1).lower()) if ext_match else ".epub"
 
-    if real_ext not in (".epub", ".pdf"):
+    if real_ext not in (".epub", ".pdf", ".mobi"):
         raise ValueError(f"Unsupported format: {real_ext}")
 
     base = dest_path.rsplit(".", 1)[0] if "." in os.path.basename(dest_path) else dest_path
-    dest_path = base + real_ext
+    file_path = base + real_ext
 
-    with open(dest_path, "wb") as f:
+    with open(file_path, "wb") as f:
         for chunk in response.iter_content(chunk_size=16384):
             if chunk:
                 f.write(chunk)
 
     # Reject HTML error pages masquerading as files
-    with open(dest_path, "rb") as f:
+    with open(file_path, "rb") as f:
         magic = f.read(4)
     if magic[:1] in (b"<", b"{") or magic == b"":
-        os.remove(dest_path)
+        os.remove(file_path)
         raise ValueError("Server returned an error page instead of the ebook")
 
-    return dest_path
+    # Convert mobi → epub via calibre
+    if real_ext == ".mobi":
+        if not _CALIBRE:
+            os.remove(file_path)
+            raise ValueError("mobi format requires calibre (brew install calibre)")
+        epub_path = base + ".epub"
+        subprocess.run([_CALIBRE, file_path, epub_path], check=True, timeout=120, capture_output=True)
+        os.remove(file_path)
+        return epub_path
+
+    return file_path
